@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'hand_perception_node = vteleop.hand_perception_node:main',
+            'hand_control_node = vteleop.hand_control_node:main',
         ],
     },
 )
