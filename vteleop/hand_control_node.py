@@ -130,7 +130,7 @@ class InspireHandControlNode(Node):
         Joint angles를 Inspire Hand 제어 각도로 변환.
 
         MediaPipe angles: 180 = extended, ~60 = flexed
-        Inspire Hand: 0 = open/extended, 1000 = closed/flexed
+        Inspire Hand: 0 = closed/bent, 1000 = open/extended
         """
         result = {}
 
@@ -189,10 +189,10 @@ class InspireHandControlNode(Node):
         MediaPipe 각도를 Inspire Hand 각도로 매핑.
 
         MediaPipe: 180 (extended) -> 60 (flexed)
-        Inspire: 0 (open) -> 1000 (closed)
+        Inspire: 0 (closed/bent) -> 1000 (open/extended)
         """
-        # 각도를 0-1 범위로 정규화 (180=0, 60=1)
-        normalized = (max_angle - angle) / (max_angle - min_angle)
+        # 각도를 0-1 범위로 정규화 (60=0, 180=1)
+        normalized = (angle - min_angle) / (max_angle - min_angle)
         normalized = max(0.0, min(1.0, normalized))
 
         # Inspire Hand 범위로 스케일
