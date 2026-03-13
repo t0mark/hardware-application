@@ -1,0 +1,198 @@
+<?xml version="1.0"?>
+<!--
+  Inspire Robotics RH56E2 Dexterous Hand
+  6-DOF, 5-finger robot hand
+  Simplified geometric representation (no mesh files available)
+
+  Attachment: parent link should be FT_sensor_R or FT_sensor_L
+  The hand Z-axis points away from the arm (fingertips extend in -Z direction)
+
+  Approximate dimensions (from datasheet):
+    Palm:   95mm (W) x 72mm (D) x 37mm (H)
+    Finger length: ~100mm (proximal + distal phalanx combined, simplified)
+    Total hand length: ~210mm
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="inspire_hand_rh56e2" params="prefix parent *origin">
+
+    <xacro:property name="palm_width"  value="0.095"/>  <!-- X -->
+    <xacro:property name="palm_depth"  value="0.072"/>  <!-- Y -->
+    <xacro:property name="palm_height" value="0.037"/>  <!-- Z -->
+    <xacro:property name="finger_radius" value="0.010"/>
+    <xacro:property name="finger_length" value="0.100"/>
+    <xacro:property name="thumb_length" value="0.080"/>
+
+    <!-- ===== Palm ===== -->
+    <joint name="${prefix}_hand_base_joint" type="fixed">
+      <xacro:insert_block name="origin"/>
+      <parent link="${parent}"/>
+      <child link="${prefix}_hand_palm_link"/>
+    </joint>
+
+    <link name="${prefix}_hand_palm_link">
+      <inertial>
+        <mass value="0.52"/>
+        <origin xyz="0 0 -0.037" rpy="0 0 0"/>
+        <inertia ixx="0.000650" ixy="0.0" ixz="0.0"
+                 iyy="0.000580" iyz="0.0" izz="0.000430"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 -${palm_height/2}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${palm_width} ${palm_depth} ${palm_height}"/>
+        </geometry>
+        <material name="inspire_hand_gray">
+          <color rgba="0.3 0.3 0.3 1.0"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 -${palm_height/2}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${palm_width} ${palm_depth} ${palm_height}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- ===== Index Finger ===== -->
+    <joint name="${prefix}_index_finger_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_index_finger_link"/>
+      <origin xyz="0.030 0.036 -${palm_height + finger_length/2}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}_index_finger_link">
+      <visual>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+        <material name="inspire_hand_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.030"/>
+        <origin xyz="0 0 0"/>
+        <inertia ixx="0.000028" ixy="0.0" ixz="0.0"
+                 iyy="0.000028" iyz="0.0" izz="0.0000015"/>
+      </inertial>
+    </link>
+
+    <!-- ===== Middle Finger ===== -->
+    <joint name="${prefix}_middle_finger_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_middle_finger_link"/>
+      <origin xyz="0.010 0.036 -${palm_height + finger_length/2}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}_middle_finger_link">
+      <visual>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+        <material name="inspire_hand_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.030"/>
+        <origin xyz="0 0 0"/>
+        <inertia ixx="0.000028" ixy="0.0" ixz="0.0"
+                 iyy="0.000028" iyz="0.0" izz="0.0000015"/>
+      </inertial>
+    </link>
+
+    <!-- ===== Ring Finger ===== -->
+    <joint name="${prefix}_ring_finger_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_ring_finger_link"/>
+      <origin xyz="-0.010 0.036 -${palm_height + finger_length/2}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}_ring_finger_link">
+      <visual>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+        <material name="inspire_hand_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.030"/>
+        <origin xyz="0 0 0"/>
+        <inertia ixx="0.000028" ixy="0.0" ixz="0.0"
+                 iyy="0.000028" iyz="0.0" izz="0.0000015"/>
+      </inertial>
+    </link>
+
+    <!-- ===== Pinky Finger ===== -->
+    <joint name="${prefix}_pinky_finger_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_pinky_finger_link"/>
+      <origin xyz="-0.030 0.036 -${palm_height + finger_length/2}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}_pinky_finger_link">
+      <visual>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+        <material name="inspire_hand_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${finger_radius}" length="${finger_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.025"/>
+        <origin xyz="0 0 0"/>
+        <inertia ixx="0.000022" ixy="0.0" ixz="0.0"
+                 iyy="0.000022" iyz="0.0" izz="0.0000012"/>
+      </inertial>
+    </link>
+
+    <!-- ===== Thumb ===== -->
+    <joint name="${prefix}_thumb_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_thumb_link"/>
+      <!-- Thumb is offset to the side and angled outward ~45 deg -->
+      <origin xyz="-0.042 0.010 -${palm_height + thumb_length/2}" rpy="0 0.7854 0"/>
+    </joint>
+    <link name="${prefix}_thumb_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.013" length="${thumb_length}"/>
+        </geometry>
+        <material name="inspire_hand_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.013" length="${thumb_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.035"/>
+        <origin xyz="0 0 0"/>
+        <inertia ixx="0.000032" ixy="0.0" ixz="0.0"
+                 iyy="0.000032" iyz="0.0" izz="0.0000018"/>
+      </inertial>
+    </link>
+
+    <!-- ===== TCP (Tool Center Point) ===== -->
+    <joint name="${prefix}_hand_tcp_joint" type="fixed">
+      <parent link="${prefix}_hand_palm_link"/>
+      <child link="${prefix}_hand_tcp"/>
+      <origin xyz="0 0.036 -${palm_height + finger_length}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}_hand_tcp"/>
+
+  </xacro:macro>
+
+</robot>

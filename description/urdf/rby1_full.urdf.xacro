@@ -1,0 +1,298 @@
+<?xml version="1.0"?>
+<!--
+  RBY1 Full System Description
+  ==============================
+  RBY1 humanoid robot with the following attachments:
+    - ZED2i stereo camera on the head (link_head_2)
+    - Inspire Robotics RH56E2 dexterous hands on both wrists (FT_sensor_R / FT_sensor_L)
+    - Intel RealSense D435 depth cameras on both wrists (link_right_arm_6 / link_left_arm_6)
+
+  Package: rby1_full_description
+  Mesh directory: package://rby1_full_description/meshes/
+
+  Usage:
+    xacro rby1_full.urdf.xacro [zed_model:=zed2i] [robot_ip:=] > rby1_full.urdf
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rby1_full">
+
+  <!-- ================================================================
+       Arguments
+       ================================================================ -->
+  <xacro:arg name="zed_model"              default="zed2i"/>
+  <xacro:arg name="initial_positions_file" default="initial_positions.yaml"/>
+  <xacro:arg name="robot_ip"               default=""/>
+
+  <xacro:property name="M_PI" value="3.1415926535897931"/>
+
+  <!-- ================================================================
+       1. RBY1 Base Robot
+          Includes the full kinematic chain (base, torso, arms, head)
+          with the original EE grippers removed.
+       ================================================================ -->
+  <xacro:include filename="$(find rby1_full_description)/urdf/rby1_base.urdf"/>
+
+  <!-- ================================================================
+       2. Inspire Hand RH56E2 Macros
+       ================================================================ -->
+  <xacro:include filename="$(find rby1_full_description)/urdf/inspire_hand.urdf.xacro"/>
+
+  <!-- Right hand — attached to FT_sensor_R
+       The FT sensor Z-axis points away from the arm in -Z direction.
+       The inspire hand palm sits 46.1 mm below the FT sensor face
+       (same offset as the original ee_right joint). -->
+  <xacro:inspire_hand_rh56e2 prefix="right" parent="FT_sensor_R">
+    <origin xyz="0.0 0.0 -0.0461" rpy="0.0 0.0 0.0"/>
+  </xacro:inspire_hand_rh56e2>
+
+  <!-- Left hand — attached to FT_sensor_L -->
+  <xacro:inspire_hand_rh56e2 prefix="left" parent="FT_sensor_L">
+    <origin xyz="0.0 0.0 -0.0461" rpy="0.0 0.0 0.0"/>
+  </xacro:inspire_hand_rh56e2>
+
+  <!-- ================================================================
+       3. ZED Camera on Head
+          Attach to link_head_2 (pan-tilt end link).
+          Mounted ~40 mm forward and ~20 mm above the head joint,
+          facing forward (+X direction of the head frame).
+       ================================================================ -->
+
+  <!-- ZED materials (inline, no package dependency) -->
+  <material name="zed2i_mat">
+    <color rgba="0.25 0.25 0.25 1.0"/>
+  </material>
+
+  <!-- ZED camera_link (mounting reference frame) -->
+  <link name="zed_camera_link"/>
+
+  <joint name="zed_camera_joint" type="fixed">
+    <parent link="link_head_2"/>
+    <child link="zed_camera_link"/>
+    <!-- 40 mm forward (+X), 0 mm lateral, 20 mm up (+Z) in head frame -->
+    <origin xyz="0.04 0.0 0.02" rpy="0.0 0.0 0.0"/>
+  </joint>
+
+  <!-- ZED camera center (visual + collision) -->
+  <!-- ZED2i baseline=120mm, height=30mm, bottom_slope=0 -->
+  <xacro:property name="zed_baseline"    value="0.12"/>
+  <xacro:property name="zed_height"      value="0.03"/>
+  <xacro:property name="zed_screw_off_x" value="-0.01"/>
+  <xacro:property name="zed_opt_off_x"   value="-0.01"/>
+
+  <link name="zed_camera_center">
+    <visual>
+      <origin xyz="${zed_screw_off_x} 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://rby1_full_description/meshes/zed2i.stl"/>
+      </geometry>
+      <material name="zed2i_mat"/>
+    </visual>
+    <collision>
+      <origin xyz="${zed_screw_off_x} 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://rby1_full_description/meshes/zed2i.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="zed_camera_center_joint" type="fixed">
+    <parent link="zed_camera_link"/>
+    <child link="zed_camera_center"/>
+    <origin xyz="0 0 ${zed_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ZED left camera frame -->
+  <link name="zed_left_camera_frame"/>
+  <joint name="zed_left_camera_joint" type="fixed">
+    <parent link="zed_camera_center"/>
+    <child link="zed_left_camera_frame"/>
+    <origin xyz="${zed_opt_off_x} ${zed_baseline/2} 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="zed_left_camera_optical_frame"/>
+  <joint name="zed_left_camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0.0 -${M_PI/2}"/>
+    <parent link="zed_left_camera_frame"/>
+    <child link="zed_left_camera_optical_frame"/>
+  </joint>
+
+  <!-- ZED right camera frame -->
+  <link name="zed_right_camera_frame"/>
+  <joint name="zed_right_camera_joint" type="fixed">
+    <parent link="zed_camera_center"/>
+    <child link="zed_right_camera_frame"/>
+    <origin xyz="${zed_opt_off_x} -${zed_baseline/2} 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="zed_right_camera_optical_frame"/>
+  <joint name="zed_right_camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0.0 -${M_PI/2}"/>
+    <parent link="zed_right_camera_frame"/>
+    <child link="zed_right_camera_optical_frame"/>
+  </joint>
+
+  <!-- ZED2i IMU/sensor links -->
+  <link name="zed_imu_link"/>
+  <joint name="zed_imu_joint" type="fixed">
+    <parent link="zed_camera_center"/>
+    <child link="zed_imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       4. RealSense D435 on Right Arm (wrist-mounted)
+          Attached to link_right_arm_6 (last revolute joint of right arm).
+          Positioned at the outer forearm/wrist, pointing forward.
+          xyz:  50 mm forward along arm +X, 40 mm lateral (outward -Y for right),
+                50 mm back toward forearm along arm -Z
+          rpy:  tilt 90 deg to point camera forward (+X of arm frame)
+       ================================================================ -->
+
+  <!-- Shared D435 material -->
+  <material name="realsense_aluminum">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+
+  <!-- D435 properties -->
+  <xacro:property name="d435_cam_width"  value="0.090"/>
+  <xacro:property name="d435_cam_height" value="0.025"/>
+  <xacro:property name="d435_cam_depth"  value="0.02505"/>
+  <xacro:property name="d435_cam_depth_py" value="0.0175"/>
+  <xacro:property name="d435_mount_off"    value="0.0149"/>
+  <xacro:property name="d435_glass_front"  value="0.0001"/>
+  <xacro:property name="d435_zero_depth"   value="0.0042"/>
+  <xacro:property name="d435_mesh_x_off"   value="${d435_mount_off - d435_glass_front - d435_zero_depth}"/>
+  <xacro:property name="d435_cam_depth_pz" value="${d435_cam_height/2}"/>
+
+  <!-- Right arm D435 -->
+  <link name="right_arm_camera_bottom_screw_frame"/>
+  <joint name="right_arm_camera_joint" type="fixed">
+    <parent link="link_right_arm_6"/>
+    <child link="right_arm_camera_bottom_screw_frame"/>
+    <!-- Mount on the outer side of the wrist, camera pointing toward the hand workspace -->
+    <origin xyz="0.0 -0.05 -0.07" rpy="0.0 ${M_PI/2} 0.0"/>
+  </joint>
+
+  <link name="right_arm_camera_link">
+    <visual>
+      <origin xyz="${d435_zero_depth + d435_glass_front} ${-d435_cam_depth_py} 0"
+              rpy="${M_PI/2} 0 ${M_PI/2}"/>
+      <geometry>
+        <mesh filename="package://rby1_full_description/meshes/d435.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 ${-d435_cam_depth_py} 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${d435_cam_depth} ${d435_cam_width} ${d435_cam_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.072"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.003881243" ixy="0.0" ixz="0.0"
+               iyy="0.000498940" iyz="0.0" izz="0.003879257"/>
+    </inertial>
+  </link>
+
+  <joint name="right_arm_camera_link_joint" type="fixed">
+    <origin xyz="${d435_mesh_x_off} ${d435_cam_depth_py} ${d435_cam_depth_pz}" rpy="0 0 0"/>
+    <parent link="right_arm_camera_bottom_screw_frame"/>
+    <child link="right_arm_camera_link"/>
+  </joint>
+
+  <!-- Right arm camera optical frames -->
+  <link name="right_arm_camera_depth_frame"/>
+  <joint name="right_arm_camera_depth_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="right_arm_camera_link"/>
+    <child link="right_arm_camera_depth_frame"/>
+  </joint>
+
+  <link name="right_arm_camera_depth_optical_frame"/>
+  <joint name="right_arm_camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0 -${M_PI/2}"/>
+    <parent link="right_arm_camera_depth_frame"/>
+    <child link="right_arm_camera_depth_optical_frame"/>
+  </joint>
+
+  <link name="right_arm_camera_color_frame"/>
+  <joint name="right_arm_camera_color_joint" type="fixed">
+    <origin xyz="0 0.015 0" rpy="0 0 0"/>
+    <parent link="right_arm_camera_link"/>
+    <child link="right_arm_camera_color_frame"/>
+  </joint>
+
+  <link name="right_arm_camera_color_optical_frame"/>
+  <joint name="right_arm_camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0 -${M_PI/2}"/>
+    <parent link="right_arm_camera_color_frame"/>
+    <child link="right_arm_camera_color_optical_frame"/>
+  </joint>
+
+  <!-- Left arm D435 -->
+  <link name="left_arm_camera_bottom_screw_frame"/>
+  <joint name="left_arm_camera_joint" type="fixed">
+    <parent link="link_left_arm_6"/>
+    <child link="left_arm_camera_bottom_screw_frame"/>
+    <!-- Mirror of right arm mount -->
+    <origin xyz="0.0 0.05 -0.07" rpy="0.0 ${M_PI/2} 0.0"/>
+  </joint>
+
+  <link name="left_arm_camera_link">
+    <visual>
+      <origin xyz="${d435_zero_depth + d435_glass_front} ${-d435_cam_depth_py} 0"
+              rpy="${M_PI/2} 0 ${M_PI/2}"/>
+      <geometry>
+        <mesh filename="package://rby1_full_description/meshes/d435.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 ${-d435_cam_depth_py} 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${d435_cam_depth} ${d435_cam_width} ${d435_cam_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.072"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.003881243" ixy="0.0" ixz="0.0"
+               iyy="0.000498940" iyz="0.0" izz="0.003879257"/>
+    </inertial>
+  </link>
+
+  <joint name="left_arm_camera_link_joint" type="fixed">
+    <origin xyz="${d435_mesh_x_off} ${d435_cam_depth_py} ${d435_cam_depth_pz}" rpy="0 0 0"/>
+    <parent link="left_arm_camera_bottom_screw_frame"/>
+    <child link="left_arm_camera_link"/>
+  </joint>
+
+  <!-- Left arm camera optical frames -->
+  <link name="left_arm_camera_depth_frame"/>
+  <joint name="left_arm_camera_depth_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="left_arm_camera_link"/>
+    <child link="left_arm_camera_depth_frame"/>
+  </joint>
+
+  <link name="left_arm_camera_depth_optical_frame"/>
+  <joint name="left_arm_camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0 -${M_PI/2}"/>
+    <parent link="left_arm_camera_depth_frame"/>
+    <child link="left_arm_camera_depth_optical_frame"/>
+  </joint>
+
+  <link name="left_arm_camera_color_frame"/>
+  <joint name="left_arm_camera_color_joint" type="fixed">
+    <origin xyz="0 0.015 0" rpy="0 0 0"/>
+    <parent link="left_arm_camera_link"/>
+    <child link="left_arm_camera_color_frame"/>
+  </joint>
+
+  <link name="left_arm_camera_color_optical_frame"/>
+  <joint name="left_arm_camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-${M_PI/2} 0 -${M_PI/2}"/>
+    <parent link="left_arm_camera_color_frame"/>
+    <child link="left_arm_camera_color_optical_frame"/>
+  </joint>
+
+</robot>
