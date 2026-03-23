@@ -1,0 +1,9 @@
+grasp_task_node:
+  ros__parameters:
+    hue_min: 35
+    hue_max: 85
+    sat_min: 50
+    sat_max: 255
+    val_min: 50
+    val_max: 255
+    min_contour_area: 500
