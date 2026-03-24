@@ -3,10 +3,10 @@
 # Block detector node: publishes HSV mask, annotated image, and RViz 3D markers.
 #
 # Topics published:
-#   /block_detector/debug/mask       — HSV binary mask (mono8)
-#   /block_detector/debug/annotated  — color image with contour + centroid
-#   /block_detector/debug/pose       — detected PoseStamped (camera frame)
-#   /block_detector/debug/markers    — MarkerArray in link0 frame (RViz)
+#   /block_detector/mask       — HSV binary mask (mono8)
+#   /block_detector/annotated  — color image with contour + centroid
+#   /block_detector/pose       — smoothed PoseStamped (link0 frame)
+#   /block_detector/markers    — MarkerArray in link0 frame (RViz)
 
 from __future__ import annotations
 
@@ -63,11 +63,11 @@ class BlockDetectorNode(Node):
         self.create_subscription(CameraInfo, '/camera/camera/depth/camera_info',
                                  self._depth_info_cb, 10)
 
-        self._pub_mask = self.create_publisher(Image, '/block_detector/debug/mask', 10)
-        self._pub_anno = self.create_publisher(Image, '/block_detector/debug/annotated', 10)
-        self._pub_pose = self.create_publisher(PoseStamped, '/block_detector/debug/pose', 10)
+        self._pub_mask = self.create_publisher(Image, '/block_detector/mask', 10)
+        self._pub_anno = self.create_publisher(Image, '/block_detector/annotated', 10)
+        self._pub_pose = self.create_publisher(PoseStamped, '/block_detector/pose', 10)
         self._pub_markers = self.create_publisher(
-            MarkerArray, '/block_detector/debug/markers', 10
+            MarkerArray, '/block_detector/markers', 10
         )
 
         # Rolling average buffer (최근 10프레임)
@@ -77,9 +77,10 @@ class BlockDetectorNode(Node):
 
         self.get_logger().info(
             f'BlockDetectorNode ready.\n'
-            f'  Image  → /block_detector/debug/annotated\n'
-            f'  Image  → /block_detector/debug/mask\n'
-            f'  Marker → /block_detector/debug/markers  (Fixed Frame: {BASE_FRAME})'
+            f'  Image  → /block_detector/annotated\n'
+            f'  Image  → /block_detector/mask\n'
+            f'  Pose   → /block_detector/pose  (frame: {BASE_FRAME})\n'
+            f'  Marker → /block_detector/markers  (Fixed Frame: {BASE_FRAME})'
         )
 
     def _color_cb(self, msg: Image) -> None:
@@ -185,18 +186,14 @@ class BlockDetectorNode(Node):
 
         pose_cam = PoseStamped()
         pose_cam.header.frame_id = 'camera_depth_optical_frame'
-        pose_cam.header.stamp = now
+        pose_cam.header.stamp.sec = 0
+        pose_cam.header.stamp.nanosec = 0
         pose_cam.pose.position.x = (cx_px - cx_intr) * z / fx
         pose_cam.pose.position.y = (cy_px - cy_intr) * z / fy
         pose_cam.pose.position.z = z
         pose_cam.pose.orientation.w = 1.0
 
-        # PoseStamped (camera frame) 퍼블리시
-        self._pub_pose.publish(pose_cam)
-
         # TF → BASE_FRAME (stamp=0 → 가장 최근 transform 사용)
-        pose_cam.header.stamp.sec = 0
-        pose_cam.header.stamp.nanosec = 0
         try:
             pose_base: PoseStamped = self._tf_buffer.transform(
                 pose_cam,
@@ -216,6 +213,16 @@ class BlockDetectorNode(Node):
         self._pose_buffer.append((raw_x, raw_y, raw_z))
         arr = np.array(self._pose_buffer)
         bx, by, bz = arr.mean(axis=0)
+
+        # ── Publish smoothed pose in link0 frame ──────────────────────────
+        block_pose = PoseStamped()
+        block_pose.header.frame_id = BASE_FRAME
+        block_pose.header.stamp = now
+        block_pose.pose.position.x = bx
+        block_pose.pose.position.y = by
+        block_pose.pose.position.z = bz
+        block_pose.pose.orientation.w = 1.0
+        self._pub_pose.publish(block_pose)
 
         # 이미지에 smoothed 좌표 표시
         cv2.putText(

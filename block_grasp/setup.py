@@ -22,6 +22,8 @@ setup(
     entry_points={
         'console_scripts': [
             'block_detector = block_grasp.block_detector_node:main',
+            'init_pose_node = block_grasp.init_pose_node:main',
+            'block_grasp_node = block_grasp.block_grasp_node:main',
         ],
     },
 )

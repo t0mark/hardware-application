@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /MotionPlanning1
+        - /MarkerArray1
       Splitter Ratio: 0.5
     Tree Height: 350
   - Class: rviz_common/Help
@@ -289,12 +290,13 @@ Visualization Manager:
       Namespaces:
         block: true
         block_label: true
+        block_raw: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /block_detector/debug/markers
+        Value: /block_detector/markers
       Value: true
   Enabled: true
   Global Options:
@@ -321,18 +323,18 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.05262953042984009
-        Y: 0.1753009408712387
-        Z: 0.18391790986061096
+        X: -0.18327991664409637
+        Y: -0.14272533357143402
+        Z: 0.1403384804725647
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.47999992966651917
+      Pitch: 0.6749998331069946
       Target Frame: world
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.180177211761475
+      Yaw: 4.050162315368652
     Saved: ~
 Window Geometry:
   Displays:
