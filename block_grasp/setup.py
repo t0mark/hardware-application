@@ -21,7 +21,7 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'block_detector_debug = block_grasp.block_detector_debug_node:main',
+            'block_detector = block_grasp.block_detector_node:main',
         ],
     },
 )

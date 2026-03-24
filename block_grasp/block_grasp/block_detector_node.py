@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Debug node: publishes HSV mask, annotated image, and RViz 3D markers.
+# Block detector node: publishes HSV mask, annotated image, and RViz 3D markers.
 #
 # Topics published:
 #   /block_detector/debug/mask       — HSV binary mask (mono8)
@@ -25,16 +25,14 @@ from cv_bridge import CvBridge
 import tf2_ros
 import tf2_geometry_msgs  # noqa: F401
 
-from block_grasp.block_detector import BlockDetector
-
 
 BASE_FRAME = 'link0'
 
 
-class BlockDetectorDebugNode(Node):
+class BlockDetectorNode(Node):
 
     def __init__(self) -> None:
-        super().__init__('block_detector_debug_node')
+        super().__init__('block_detector_node')
 
         # HSV params
         self.declare_parameter('hue_min', 35)
@@ -45,11 +43,6 @@ class BlockDetectorDebugNode(Node):
         self.declare_parameter('val_max', 255)
         self.declare_parameter('min_contour_area', 500)
 
-        hsv_params = {k: self.get_parameter(k).value for k in [
-            'hue_min', 'hue_max', 'sat_min', 'sat_max',
-            'val_min', 'val_max', 'min_contour_area',
-        ]}
-        self._detector = BlockDetector(hsv_params)
         self._bridge = CvBridge()
 
         # TF
@@ -83,7 +76,7 @@ class BlockDetectorDebugNode(Node):
         self.create_timer(0.1, self._timer_cb)  # 10 Hz
 
         self.get_logger().info(
-            f'BlockDetectorDebugNode ready.\n'
+            f'BlockDetectorNode ready.\n'
             f'  Image  → /block_detector/debug/annotated\n'
             f'  Image  → /block_detector/debug/mask\n'
             f'  Marker → /block_detector/debug/markers  (Fixed Frame: {BASE_FRAME})'
@@ -107,8 +100,8 @@ class BlockDetectorDebugNode(Node):
         if self._color_img is None or self._depth_img is None:
             return
 
-        color = self._color_img.copy()
-        depth = self._depth_img.copy()
+        color = cv2.flip(self._color_img.copy(), 1)
+        depth = cv2.flip(self._depth_img.copy(), 1)
 
         # ── HSV mask ──────────────────────────────────────────────────────
         h_min = self.get_parameter('hue_min').value
@@ -135,10 +128,10 @@ class BlockDetectorDebugNode(Node):
         if contours:
             largest = max(contours, key=cv2.contourArea)
             if cv2.contourArea(largest) >= min_area:
-                detected = True
                 cv2.drawContours(annotated, [largest], -1, (0, 255, 0), 2)
                 M = cv2.moments(largest)
                 if M['m00'] != 0:
+                    detected = True
                     cx_px = int(M['m10'] / M['m00'])
                     cy_px = int(M['m01'] / M['m00'])
                     cv2.circle(annotated, (cx_px, cy_px), 6, (0, 0, 255), -1)
@@ -168,16 +161,37 @@ class BlockDetectorDebugNode(Node):
             self._publish_no_detection_marker()
             return
 
-        # BlockDetector로 3D 역투영 (depth intrinsics 사용)
-        depth_cam_info = self._depth_camera_info
-        depth_cam_info.header.stamp = now
-        pose_cam = self._detector.detect(color, depth, depth_cam_info)
-        if pose_cam is None:
+        # ── 5×5 median depth + back-projection ───────────────────────────
+        h_img, w_img = depth.shape[:2]
+        r0, r1 = max(0, cy_px - 2), min(h_img, cy_px + 3)
+        c0, c1 = max(0, cx_px - 2), min(w_img, cx_px + 3)
+        patch = depth[r0:r1, c0:c1].astype(np.float32)
+        valid = patch[patch > 0]
+        if valid.size == 0:
             self._publish_no_detection_marker()
             return
 
-        # PoseStamped (camera frame) 퍼블리시
+        z_raw = float(np.median(valid))
+        z = z_raw / 1000.0 if depth.dtype == np.uint16 else z_raw
+        if z <= 0.0 or z > 2.0:
+            self._publish_no_detection_marker()
+            return
+
+        depth_cam_info = self._depth_camera_info
+        fx: float = depth_cam_info.k[0]
+        fy: float = depth_cam_info.k[4]
+        cx_intr: float = depth_cam_info.k[2]
+        cy_intr: float = depth_cam_info.k[5]
+
+        pose_cam = PoseStamped()
+        pose_cam.header.frame_id = 'camera_depth_optical_frame'
         pose_cam.header.stamp = now
+        pose_cam.pose.position.x = (cx_px - cx_intr) * z / fx
+        pose_cam.pose.position.y = (cy_px - cy_intr) * z / fy
+        pose_cam.pose.position.z = z
+        pose_cam.pose.orientation.w = 1.0
+
+        # PoseStamped (camera frame) 퍼블리시
         self._pub_pose.publish(pose_cam)
 
         # TF → BASE_FRAME (stamp=0 → 가장 최근 transform 사용)
@@ -270,7 +284,7 @@ class BlockDetectorDebugNode(Node):
     def _publish_no_detection_marker(self) -> None:
         """감지 실패 시 마커 삭제."""
         markers = MarkerArray()
-        for mid, ns in [(0, 'block'), (1, 'block_label')]:
+        for mid, ns in [(0, 'block_raw'), (1, 'block'), (2, 'block_label')]:
             m = Marker()
             m.header.frame_id = BASE_FRAME
             m.header.stamp = self.get_clock().now().to_msg()
@@ -283,7 +297,7 @@ class BlockDetectorDebugNode(Node):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = BlockDetectorDebugNode()
+    node = BlockDetectorNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
