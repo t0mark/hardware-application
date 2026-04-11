@@ -1,0 +1,11 @@
+mqtt_bridge:
+  ros__parameters:
+    host: localhost
+    port: 1883
+    mqtt_topic: p_zone/cmd
+    ros_topic: /p_zone/command
+
+behavior_executor:
+  ros__parameters:
+    command_topic: /p_zone/command
+    min_path_fraction: 0.9
