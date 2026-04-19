@@ -1,8 +1,11 @@
 """
-ZED 카메라 MJPEG 스트리밍 서버
+ZED2i 카메라 MJPEG 스트리밍 서버 (OpenCV / UVC 모드)
+
+ZED2i는 UVC 규격으로 side-by-side 스테레오 프레임을 출력합니다.
+좌측 절반(LEFT eye)만 잘라서 JPEG로 인코딩해 스트리밍합니다.
 
 Usage:
-    python camera_server.py --port 8080 --fps 30 --quality 80 --resolution HD720
+    python camera.py --port 8080 --fps 30 --quality 80 --resolution HD720
 """
 
 import argparse
@@ -11,9 +14,14 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import cv2
-import numpy as np
-import pyzed.sl as sl
 
+# ZED2i UVC 해상도: (full_width, height) — side-by-side이므로 left = full_width // 2
+RESOLUTION_MAP = {
+    "HD2K":   (4416, 1242),
+    "HD1080": (3840, 1080),
+    "HD720":  (2560,  720),
+    "VGA":    (1344,  376),
+}
 
 # ---------------------------------------------------------------------------
 # 전역 프레임 버퍼
@@ -22,48 +30,44 @@ _frame_lock = threading.Lock()
 _latest_jpeg: bytes = b""
 
 
-def camera_worker(resolution: str, fps: int, quality: int):
-    """ZED 카메라에서 프레임을 읽어 JPEG로 인코딩하는 백그라운드 스레드."""
+def camera_worker(device_index: int, resolution: str, fps: int, quality: int):
+    """OpenCV로 ZED2i UVC 스트림을 읽어 JPEG로 인코딩하는 백그라운드 스레드."""
     global _latest_jpeg
 
-    resolution_map = {
-        "HD2K":   sl.RESOLUTION.HD2K,
-        "HD1080": sl.RESOLUTION.HD1080,
-        "HD720":  sl.RESOLUTION.HD720,
-        "VGA":    sl.RESOLUTION.VGA,
-    }
+    full_w, h = RESOLUTION_MAP.get(resolution, RESOLUTION_MAP["HD720"])
+    left_w = full_w // 2
 
-    camera = sl.Camera()
+    cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  full_w)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+    cap.set(cv2.CAP_PROP_FPS,          fps)
 
-    init_params = sl.InitParameters()
-    init_params.camera_resolution = resolution_map.get(resolution, sl.RESOLUTION.HD720)
-    init_params.camera_fps = fps
-    init_params.depth_mode = sl.DEPTH_MODE.NONE  # 깊이 불필요 → 성능 향상
-
-    status = camera.open(init_params)
-    if status != sl.ERROR_CODE.SUCCESS:
-        print(f"[Camera] ZED 카메라 열기 실패: {status}")
+    if not cap.isOpened():
+        print(f"[Camera] 카메라 열기 실패 (device {device_index})")
         return
 
-    print(f"[Camera] ZED 카메라 시작 ({resolution}, {fps}fps)")
+    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+    print(f"[Camera] 시작: {actual_w}x{actual_h} @ {actual_fps}fps (device {device_index})")
 
-    runtime_params = sl.RuntimeParameters()
-    mat = sl.Mat()
     encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
 
     while True:
-        if camera.grab(runtime_params) == sl.ERROR_CODE.SUCCESS:
-            camera.retrieve_image(mat, sl.VIEW.LEFT)
-            frame = mat.get_data()  # BGRA numpy array
+        ret, frame = cap.read()
+        if not ret:
+            print("[Camera] 프레임 읽기 실패, 재시도...")
+            time.sleep(0.1)
+            continue
 
-            # BGRA → BGR 변환 후 JPEG 인코딩
-            bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-            _, jpeg = cv2.imencode(".jpg", bgr, encode_params)
+        # side-by-side에서 좌측 eye만 잘라냄
+        left = frame[:, : actual_w // 2]
 
-            with _frame_lock:
-                _latest_jpeg = jpeg.tobytes()
+        _, jpeg = cv2.imencode(".jpg", left, encode_params)
+        with _frame_lock:
+            _latest_jpeg = jpeg.tobytes()
 
-    camera.close()
+    cap.release()
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +75,6 @@ def camera_worker(resolution: str, fps: int, quality: int):
 # ---------------------------------------------------------------------------
 class MJPEGHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        # 요청 로그 억제 (너무 많이 찍힘)
         pass
 
     def do_GET(self):
@@ -108,7 +111,6 @@ class MJPEGHandler(BaseHTTPRequestHandler):
             print(f"[Server] 클라이언트 연결 종료: {self.client_address}")
 
     def _snapshot(self):
-        """단일 JPEG 스냅샷 반환 (/snapshot)"""
         with _frame_lock:
             jpeg = _latest_jpeg
 
@@ -127,34 +129,31 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 # 진입점
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="ZED Camera MJPEG Streaming Server")
-    parser.add_argument("--port",       type=int,   default=8080,   help="HTTP 포트 (기본값: 8080)")
-    parser.add_argument("--fps",        type=int,   default=30,     help="카메라 FPS (기본값: 30)")
-    parser.add_argument("--quality",    type=int,   default=80,     help="JPEG 품질 0-100 (기본값: 80)")
+    parser = argparse.ArgumentParser(description="ZED2i Camera MJPEG Streaming Server (OpenCV/UVC)")
+    parser.add_argument("--port",       type=int,   default=8080,  help="HTTP 포트 (기본값: 8080)")
+    parser.add_argument("--device",     type=int,   default=0,     help="카메라 장치 번호 (기본값: 0)")
+    parser.add_argument("--fps",        type=int,   default=30,    help="카메라 FPS (기본값: 30)")
+    parser.add_argument("--quality",    type=int,   default=80,    help="JPEG 품질 0-100 (기본값: 80)")
     parser.add_argument("--resolution", type=str,   default="HD720",
-                        choices=["HD2K", "HD1080", "HD720", "VGA"],
+                        choices=list(RESOLUTION_MAP.keys()),
                         help="카메라 해상도 (기본값: HD720)")
     args = parser.parse_args()
 
-    # 카메라 스레드 시작
     cam_thread = threading.Thread(
         target=camera_worker,
-        args=(args.resolution, args.fps, args.quality),
+        args=(args.device, args.resolution, args.fps, args.quality),
         daemon=True,
     )
     cam_thread.start()
 
-    # 첫 프레임 대기
     print("[Server] 첫 프레임 대기 중...")
-    timeout = 10
     start = time.time()
     while not _latest_jpeg:
-        if time.time() - start > timeout:
+        if time.time() - start > 10:
             print("[Server] 카메라 초기화 타임아웃")
             return
         time.sleep(0.1)
 
-    # HTTP 서버 시작
     server = HTTPServer(("0.0.0.0", args.port), MJPEGHandler)
     print(f"[Server] 스트리밍 시작: http://0.0.0.0:{args.port}/stream")
     print(f"[Server] 스냅샷:        http://0.0.0.0:{args.port}/snapshot")
