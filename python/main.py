@@ -100,6 +100,28 @@ def connect_rby1(address: str, model: str = "a"):
             logging.critical("Failed to reset Control Manager. Exiting program.")
             exit(1)
         logging.info("Control Manager reset successfully.")
+
+    if robot.get_control_manager_state().state == rby.ControlManagerState.State.Enabled:
+        logging.info("CM is enabled, disabling to apply head PID gains...")
+        robot.disable_control_manager()
+        for i in range(30):
+            time.sleep(0.1)
+            if robot.get_control_manager_state().state != rby.ControlManagerState.State.Enabled:
+                break
+            if i == 29:
+                logging.critical("CM did not reach Idle after 3s. Exiting.")
+                exit(1)
+        logging.info("CM disabled.")
+
+    logging.info("Applying head PID gains: head_0 P=200 I=0 D=8000 / head_1 P=200 I=0 D=8000")
+    if not robot.set_position_pid_gain("head_0", 200, 0, 8000):
+        logging.critical("Failed to set PID gain for head_0. Exiting.")
+        exit(1)
+    if not robot.set_position_pid_gain("head_1", 200, 0, 8000):
+        logging.critical("Failed to set PID gain for head_1. Exiting.")
+        exit(1)
+    time.sleep(0.05)
+
     if not robot.enable_control_manager(unlimited_mode_enabled=True):
         logging.critical("Failed to enable Control Manager. Exiting program.")
         exit(1)
