@@ -61,7 +61,7 @@ def robot_state_callback(robot_state: rby.RobotState_A):
     SystemContext.vr_state.center_of_mass = robot_state.center_of_mass
 
 
-def connect_rby1(address: str, model: str = "a", no_head: bool = False):
+def connect_rby1(address: str, model: str = "a"):
     logging.info(f"Attempting to connect to RB-Y1... (Address: {address}, Model: {model})")
     robot = rby.create_robot(address, model)
 
@@ -71,7 +71,7 @@ def connect_rby1(address: str, model: str = "a", no_head: bool = False):
         exit(1)
     logging.info("Successfully connected to RB-Y1.")
 
-    servo_pattern = "^(?!head_).*" if no_head else ".*"
+    servo_pattern = ".*"
     if not robot.is_power_on(".*"):
         logging.warning("Robot power is off. Turning it on...")
         if not robot.power_on(".*"):
@@ -100,6 +100,28 @@ def connect_rby1(address: str, model: str = "a", no_head: bool = False):
             logging.critical("Failed to reset Control Manager. Exiting program.")
             exit(1)
         logging.info("Control Manager reset successfully.")
+
+    if robot.get_control_manager_state().state == rby.ControlManagerState.State.Enabled:
+        logging.info("CM is enabled, disabling to apply head PID gains...")
+        robot.disable_control_manager()
+        for i in range(30):
+            time.sleep(0.1)
+            if robot.get_control_manager_state().state != rby.ControlManagerState.State.Enabled:
+                break
+            if i == 29:
+                logging.critical("CM did not reach Idle after 3s. Exiting.")
+                exit(1)
+        logging.info("CM disabled.")
+
+    logging.info("Applying head PID gains: head_0 P=200 I=0 D=8000 / head_1 P=200 I=0 D=8000")
+    if not robot.set_position_pid_gain("head_0", 200, 0, 8000):
+        logging.critical("Failed to set PID gain for head_0. Exiting.")
+        exit(1)
+    if not robot.set_position_pid_gain("head_1", 200, 0, 8000):
+        logging.critical("Failed to set PID gain for head_1. Exiting.")
+        exit(1)
+    time.sleep(0.05)
+
     if not robot.enable_control_manager(unlimited_mode_enabled=True):
         logging.critical("Failed to enable Control Manager. Exiting program.")
         exit(1)
@@ -159,16 +181,16 @@ def setup_meta_quest_udp_communication(local_ip: str, local_port: int, meta_ques
     thread.start()
 
 
-def handle_vr_button_event(robot: Union[rby.Robot_A, rby.Robot_M], no_head: bool):
+def handle_vr_button_event(robot: Union[rby.Robot_A, rby.Robot_M]):
     if SystemContext.vr_state.event_right_a_pressed:
         logging.info("Right A button pressed. Moving robot to ready pose.")
         if robot.get_control_manager_state().control_state != rby.ControlManagerState.ControlState.Idle:
             robot.cancel_control()
         if robot.wait_for_control_ready(1000):
-            ready_pose = np.deg2rad(
-                [0.0, 45.0, -90.0, 45.0, 0.0, 0.0] +
-                [0.0, -15.0, 0.0, -120.0, 0.0, 70.0, 0.0] +
-                [0.0, 15.0, 0.0, -120.0, 0.0, 70.0, 0.0])
+            ready_pose = np.array(
+                [0.0, 0.152, -0.302, 0.150, 0.0, 0.0] +
+                [0.0, -0.087, 0.0, -2.093, 0.0, 1.220, 0.0] +
+                [0.0,  0.087, 0.0, -2.093, 0.0, 1.221, 0.0])
             cbc = (
                 rby.ComponentBasedCommandBuilder()
                 .set_body_command(
@@ -180,12 +202,6 @@ def handle_vr_button_event(robot: Union[rby.Robot_A, rby.Robot_M], no_head: bool
                     .set_minimum_time(2)
                 )
             )
-            if not no_head:
-                cbc.set_head_command(
-                    rby.JointPositionCommandBuilder()
-                    .set_position([0.] * len(SystemContext.robot_model.head_idx))
-                    .set_minimum_time(2)
-                )
             robot.send_command(
                 rby.RobotCommandBuilder().set_command(
                     cbc
@@ -243,10 +259,8 @@ def main(args: argparse.Namespace):
     logging.info(f"Use Gripper          : {'No' if args.no_gripper else 'Yes'}")
     logging.info(f"RB-Y1 gRPC Address   : {args.rby1}")
     logging.info(f"RB-Y1 Model          : {args.rby1_model}")
-    logging.info(f"Use Head             : {'No' if args.no_head else 'Yes'}")
-
     socket = open_zmq_pub_socket(args.server)
-    robot = connect_rby1(args.rby1, args.rby1_model, args.no_head)
+    robot = connect_rby1(args.rby1, args.rby1_model)
     model = robot.model()
     setup_meta_quest_udp_communication(args.local_ip, Settings.vr_control_local_port, args.meta_quest_ip,
                                        Settings.vr_control_meta_quest_port, lambda: robot.power_off(".*"))
@@ -301,7 +315,7 @@ def main(args: argparse.Namespace):
         if SystemContext.vr_state.joint_positions.size == 0:
             continue
 
-        if handle_vr_button_event(robot, args.no_head):
+        if handle_vr_button_event(robot):
             if stream is not None:
                 stream.cancel()
                 stream = None
@@ -329,14 +343,6 @@ def main(args: argparse.Namespace):
         SystemContext.vr_state.left_ee_current_pose = dyn_robot.compute_transformation(dyn_state, base_link_idx,
                                                                                        link_left_arm_6_idx) @ Settings.T_hand_offset
 
-        trans_12 = dyn_robot.compute_transformation(dyn_state, 1, 2)
-        trans_13 = dyn_robot.compute_transformation(dyn_state, 1, 3)
-        center = (trans_12[:3, 3] + trans_13[:3, 3]) / 2
-        yaw = np.atan2(center[1], center[0])
-        pitch = np.atan2(-center[2], center[0]) - np.deg2rad(10)
-        yaw = np.clip(yaw, -np.deg2rad(29), np.deg2rad(29))
-        pitch = np.clip(pitch, -np.deg2rad(19), np.deg2rad(89))
-
         # Tracking
         if stream is None:
             if robot.wait_for_control_ready(0):
@@ -354,10 +360,8 @@ def main(args: argparse.Namespace):
             if "right" in SystemContext.vr_state.controller_state["hands"]:
                 right_controller = SystemContext.vr_state.controller_state["hands"]["right"]
                 thumbstick_axis = right_controller["buttons"]["thumbstickAxis"]
-                acc = np.array([thumbstick_axis[1], thumbstick_axis[0]])
-                SystemContext.vr_state.mobile_linear_velocity += Settings.mobile_linear_acceleration_gain * acc
-                # SystemContext.vr_state.mobile_angular_velocity += Settings.mobile_angular_acceleration_gain * \
-                #                                                   thumbstick_axis[0]
+                SystemContext.vr_state.mobile_linear_velocity += Settings.mobile_linear_acceleration_gain * np.array([-thumbstick_axis[1], 0])
+                SystemContext.vr_state.mobile_angular_velocity += Settings.mobile_angular_acceleration_gain * thumbstick_axis[0]
                 SystemContext.vr_state.right_controller_current_pose = T_conv.T @ pose_to_se3(
                     right_controller["position"],
                     right_controller["rotation"]) @ T_conv
@@ -375,11 +379,6 @@ def main(args: argparse.Namespace):
 
             if "left" in SystemContext.vr_state.controller_state["hands"]:
                 left_controller = SystemContext.vr_state.controller_state["hands"]["left"]
-                thumbstick_axis = left_controller["buttons"]["thumbstickAxis"]
-                # SystemContext.vr_state.mobile_linear_velocity += Settings.mobile_linear_acceleration_gain * \
-                #                                                  thumbstick_axis[1]
-                SystemContext.vr_state.mobile_angular_velocity += Settings.mobile_angular_acceleration_gain * \
-                                                                  thumbstick_axis[0]
                 SystemContext.vr_state.left_controller_current_pose = T_conv.T @ pose_to_se3(
                     left_controller["position"],
                     left_controller["rotation"]) @ T_conv
@@ -395,22 +394,23 @@ def main(args: argparse.Namespace):
             else:
                 SystemContext.vr_state.is_left_following = False
 
-            if "head" in SystemContext.vr_state.controller_state:
-                head_controller = SystemContext.vr_state.controller_state["head"]
-                SystemContext.vr_state.head_controller_current_pose = T_conv.T @ pose_to_se3(
-                    head_controller["position"],
-                    head_controller["rotation"]) @ T_conv
+            if not args.no_torso:
+                if "head" in SystemContext.vr_state.controller_state:
+                    head_controller = SystemContext.vr_state.controller_state["head"]
+                    SystemContext.vr_state.head_controller_current_pose = T_conv.T @ pose_to_se3(
+                        head_controller["position"],
+                        head_controller["rotation"]) @ T_conv
 
-                following = SystemContext.vr_state.is_right_following and SystemContext.vr_state.is_left_following
-                if SystemContext.vr_state.is_torso_following and not following:
+                    following = SystemContext.vr_state.is_right_following and SystemContext.vr_state.is_left_following
+                    if SystemContext.vr_state.is_torso_following and not following:
+                        SystemContext.vr_state.is_torso_following = False
+                    if not SystemContext.vr_state.is_torso_following and following:
+                        SystemContext.vr_state.head_controller_start_pose = SystemContext.vr_state.head_controller_current_pose
+                        SystemContext.vr_state.torso_start_pose = SystemContext.vr_state.torso_current_pose
+                        SystemContext.vr_state.is_torso_following = True
+                        torso_reset = True
+                else:
                     SystemContext.vr_state.is_torso_following = False
-                if not SystemContext.vr_state.is_torso_following and following:
-                    SystemContext.vr_state.head_controller_start_pose = SystemContext.vr_state.head_controller_current_pose
-                    SystemContext.vr_state.torso_start_pose = SystemContext.vr_state.torso_current_pose
-                    SystemContext.vr_state.is_torso_following = True
-                    torso_reset = True
-            else:
-                SystemContext.vr_state.is_torso_following = False
 
         SystemContext.vr_state.mobile_linear_velocity -= Settings.mobile_linear_damping_gain * SystemContext.vr_state.mobile_linear_velocity
         SystemContext.vr_state.mobile_angular_velocity -= Settings.mobile_angular_damping_gain * SystemContext.vr_state.mobile_angular_velocity
@@ -545,12 +545,6 @@ def main(args: argparse.Namespace):
                 stream.send_command(
                     rby.RobotCommandBuilder().set_command(
                         rby.ComponentBasedCommandBuilder()
-                        .set_head_command(
-                            rby.JointPositionCommandBuilder()
-                            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(Settings.dt * 10))
-                            .set_position([float(yaw), float(pitch)])
-                            .set_minimum_time(Settings.dt * 1.01)
-                        )
                         .set_mobility_command(
                             rby.SE2VelocityCommandBuilder()
                             .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(Settings.dt * 10))
@@ -599,12 +593,12 @@ if __name__ == "__main__":
         help="Model type of the RB-Y1 robot (default: a)"
     )
     parser.add_argument(
-        "--no_head", action="store_true", 
-        help="Run without controlling the head"
-    )
-    parser.add_argument(
         "--whole_body", action="store_true",
         help="Use a whole-body optimization formulation (single control for all joints)"
+    )
+    parser.add_argument(
+        "--no_torso", action="store_true",
+        help="Lock torso at initial pose (disable torso following)"
     )
 
     args = parser.parse_args()
