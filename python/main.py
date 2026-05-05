@@ -42,6 +42,8 @@ class Settings:
     mobile_linear_damping_gain: float = 0.3
     mobile_angular_damping_gain: float = 0.3
 
+    head_pitch_offset: float = 0.7
+
 
 class SystemContext:
     robot_model: Union[rby.Model_A, rby.Model_M] = None
@@ -355,6 +357,8 @@ def main(args: argparse.Namespace):
                 SystemContext.vr_state.torso_locked_pose = SystemContext.vr_state.torso_current_pose
                 SystemContext.vr_state.right_hand_locked_pose = SystemContext.vr_state.right_ee_current_pose
                 SystemContext.vr_state.left_hand_locked_pose = SystemContext.vr_state.left_ee_current_pose
+                SystemContext.vr_state.head_controller_start_pose = SystemContext.vr_state.head_controller_current_pose
+                SystemContext.vr_state.head_locked_position = np.array([0.0, Settings.head_pitch_offset])
 
         if "hands" in SystemContext.vr_state.controller_state:
             if "right" in SystemContext.vr_state.controller_state["hands"]:
@@ -448,10 +452,8 @@ def main(args: argparse.Namespace):
                     left_T = SystemContext.vr_state.left_hand_locked_pose
 
                 if SystemContext.vr_state.is_torso_following:
-                    print('a')
                     diff = np.linalg.inv(
                         SystemContext.vr_state.head_controller_start_pose) @ SystemContext.vr_state.head_controller_current_pose
-                    print(SystemContext.vr_state.head_controller_start_pose)
 
                     T = np.identity(4)
                     T[:3, :3] = SystemContext.vr_state.torso_start_pose[:3, :3]
@@ -459,6 +461,22 @@ def main(args: argparse.Namespace):
                     SystemContext.vr_state.torso_locked_pose = torso_T
                 else:
                     torso_T = SystemContext.vr_state.torso_locked_pose
+
+                # Head joint tracking (head_0: yaw/pan, head_1: pitch/tilt)
+                if not args.no_torso and "head" in SystemContext.vr_state.controller_state:
+                    head_diff = np.linalg.inv(
+                        SystemContext.vr_state.head_controller_start_pose) @ SystemContext.vr_state.head_controller_current_pose
+                    euler = R.from_matrix(head_diff[:3, :3]).as_euler('ZYX')
+                    head_target = np.clip(
+                        np.array([euler[0], euler[1] + Settings.head_pitch_offset]),
+                        [-1.0, -0.5], [1.0, 0.5]
+                    )
+                    SystemContext.vr_state.head_locked_position = head_target
+                    logging.info(f"head_target = {np.round(head_target, 3)}")
+                else:
+                    head_target = SystemContext.vr_state.head_locked_position
+                    if not args.no_torso:
+                        logging.warning("No 'head' data in controller_state — head command is [0, 0]")
 
                 if args.whole_body:
                     ctrl_builder = (
@@ -554,6 +572,11 @@ def main(args: argparse.Namespace):
                         )
                         .set_body_command(
                             ctrl_builder
+                        )
+                        .set_head_command(
+                            rby.JointPositionCommandBuilder()
+                            .set_position(head_target)
+                            .set_minimum_time(Settings.dt * 1.01)
                         )
                     )
                 )

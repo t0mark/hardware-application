@@ -28,7 +28,8 @@ def camera_worker(device_index: int, resolution: str, fps: int, quality: int):
 
     full_w, h = RESOLUTION_MAP.get(resolution, RESOLUTION_MAP["HD720"])
 
-    cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
+    device_path = f"/dev/video{device_index}" if isinstance(device_index, int) else device_index
+    cap = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  full_w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
     cap.set(cv2.CAP_PROP_FPS,          fps)

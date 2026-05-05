@@ -48,6 +48,9 @@ class VRControlState:
     left_ee_current_pose: np.ndarray = field(default_factory=lambda: np.identity(4))
     left_hand_locked_pose: np.ndarray = field(default_factory=lambda: np.identity(4))
 
+    # Head joint target (head_0: yaw/pan, head_1: pitch/tilt)
+    head_locked_position: np.ndarray = field(default_factory=lambda: np.zeros(2))
+
     # Button event states
     event_right_a_pressed: bool = False
     event_right_b_pressed: bool = False
